@@ -35,3 +35,6 @@ void CommandExecutor::onStarted() {emit started();}
 
 void CommandExecutor::onFinished(int exitCode, QProcess::ExitStatus exitStatus) {
     emit finished(exitCode, exitStatus);}
+
+bool CommandExecutor::isRunning() const {
+    return m_process && m_process->state() == QProcess::Running;}
