@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include "systemcmd.h"
+#include "SwipeBuilderWidget.h"
 #include <QMainWindow>
 #include <QMap>
 #include <QVector>
@@ -10,6 +11,7 @@
 #include <QProcess>
 #include <QSettings>
 #include <QTimer>
+#include <QDir>
 
 class QListWidget;
 class QListWidgetItem;
@@ -72,8 +74,12 @@ private slots:
     void onSequenceCommandExecuting(const QString &cmd, int index, int total);
     void handleSequenceLog(const QString &text, const QString &color);    
     void showSequencePreview();
+//    void onSequenceFileGenerated(const QString &filePath);
 
 private:
+    QDockWidget *m_dockBuilder = nullptr;
+    SwipeBuilderWidget *m_swipeBuilder = nullptr;
+    QAction *m_viewBuilderAct = nullptr;
     QDockWidget *m_dockCategories = nullptr;
     QDockWidget *m_dockCommands = nullptr;
     QDockWidget *m_dockLog = nullptr;
@@ -92,6 +98,7 @@ private:
     QPushButton *m_scheduleBtn = nullptr;
     QMap<QString, QVector<SystemCmd>> m_commands;
     CommandExecutor *m_executor = nullptr;
+    QString m_adbPath = QStringLiteral("adb");
     QString m_jsonFile = QStringLiteral("adb_commands.json");
     QStringList m_inputHistory;
     int m_inputHistoryIndex = -1;    
