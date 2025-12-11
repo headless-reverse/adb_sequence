@@ -4,7 +4,6 @@
 
 class QLineEdit;
 class QCheckBox;
-
 class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
@@ -14,8 +13,6 @@ public:
     QString adbPath() const;
     void setSafeMode(bool v);
     bool safeMode() const;
-
 private:
     QLineEdit *m_adbEdit = nullptr;
-    QCheckBox *m_safeCheck = nullptr;
-};
+    QCheckBox *m_safeCheck = nullptr;};
