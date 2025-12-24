@@ -82,7 +82,7 @@ private:
     int m_fontSize = 10;};
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    setWindowTitle("Android Debug Bridge");
+    setWindowTitle("Android Debug Bridge Sequence");
     resize(1100, 720);
     setAcceptDrops(true);
     ensureJsonPathLocal();    
