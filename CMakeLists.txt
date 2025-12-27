@@ -18,7 +18,12 @@ add_executable(${PROJECT_NAME}
     mainwindow.cpp
     commandexecutor.cpp
     settingsdialog.cpp
-    sequencerunner.cpp)
+    sequencerunner.cpp
+    SwipeBuilderWidget.cpp
+    SwipeCanvas.cpp
+    SwipeModel.cpp
+    KeyboardWidget.cpp
+)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Core
