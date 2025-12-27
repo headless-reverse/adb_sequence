@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "SwipeBuilderWidget.h"
 #include "commandexecutor.h"
 #include "settingsdialog.h"
 #include "sequencerunner.h"
@@ -85,48 +86,47 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("Android Debug Bridge Sequence");
     resize(1100, 720);
     setAcceptDrops(true);
-    ensureJsonPathLocal();    
-    m_executor = new CommandExecutor(this);    
+    ensureJsonPathLocal();
+    m_executor = new CommandExecutor(this);
     m_commandTimer = new QTimer(this);
-    connect(m_commandTimer, &QTimer::timeout, this, &MainWindow::executeScheduledCommand);    
+    connect(m_commandTimer, &QTimer::timeout, this, &MainWindow::executeScheduledCommand);
     m_sequenceRunner = new SequenceRunner(m_executor, this);
     connect(m_sequenceRunner, &SequenceRunner::sequenceStarted, this, &MainWindow::onSequenceStarted);
     connect(m_sequenceRunner, &SequenceRunner::sequenceFinished, this, &MainWindow::onSequenceFinished);
     connect(m_sequenceRunner, &SequenceRunner::commandExecuting, this, &MainWindow::onSequenceCommandExecuting);
-    connect(m_sequenceRunner, &SequenceRunner::logMessage, this, &MainWindow::handleSequenceLog);    
+    connect(m_sequenceRunner, &SequenceRunner::logMessage, this, &MainWindow::handleSequenceLog);
     m_sequenceIntervalTimer = new QTimer(this);
     m_sequenceIntervalTimer->setSingleShot(true);
-    connect(m_sequenceIntervalTimer, &QTimer::timeout, this, &MainWindow::startIntervalSequence);    
+    connect(m_sequenceIntervalTimer, &QTimer::timeout, this, &MainWindow::startIntervalSequence);
     connect(m_sequenceRunner, &SequenceRunner::scheduleRestart, this, [this](int interval){
         if (m_sequenceIntervalTimer->isActive()) m_sequenceIntervalTimer->stop();
         m_sequenceIntervalTimer->setInterval(interval * 1000);
         m_sequenceIntervalTimer->start();
-        updateTimerDisplay();
-    });
+        updateTimerDisplay();});
     m_displayTimer = new QTimer(this);
     m_displayTimer->setInterval(100);
     connect(m_displayTimer, &QTimer::timeout, this, &MainWindow::updateTimerDisplay);
-    m_displayTimer->start();    
-    m_isRootShell = m_settings.value("isRootShell", false).toBool();    
+    m_displayTimer->start();
+    m_isRootShell = m_settings.value("isRootShell", false).toBool();
     connect(m_executor, &CommandExecutor::outputReceived, this, &MainWindow::onOutput);
     connect(m_executor, &CommandExecutor::errorReceived, this, &MainWindow::onError);
     connect(m_executor, &CommandExecutor::started, this, &MainWindow::onProcessStarted);
-    connect(m_executor, &CommandExecutor::finished, this, &MainWindow::onProcessFinished);    
-    setupMenus();    
+    connect(m_executor, &CommandExecutor::finished, this, &MainWindow::onProcessFinished);
+    setupMenus();
     m_categoryList = new QListWidget();
     m_categoryList->setSelectionMode(QAbstractItemView::SingleSelection);
-    connect(m_categoryList, &QListWidget::currentItemChanged, this, &MainWindow::onCategoryChanged);    
+    connect(m_categoryList, &QListWidget::currentItemChanged, this, &MainWindow::onCategoryChanged);
     m_dockCategories = new QDockWidget(tr("Categories"), this);
     m_dockCategories->setObjectName("dockCategories");
     m_dockCategories->setWidget(m_categoryList);
     m_dockCategories->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    addDockWidget(Qt::LeftDockWidgetArea, m_dockCategories);    
+    addDockWidget(Qt::LeftDockWidgetArea, m_dockCategories);
     m_commandModel = new QStandardItemModel(this);
-    m_commandModel->setHorizontalHeaderLabels(QStringList{"Command", "Description"});    
+    m_commandModel->setHorizontalHeaderLabels(QStringList{"Command", "Description"});
     m_commandProxy = new QSortFilterProxyModel(this);
     m_commandProxy->setSourceModel(m_commandModel);
     m_commandProxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
-    m_commandProxy->setFilterKeyColumn(-1);    
+    m_commandProxy->setFilterKeyColumn(-1);
     m_commandView = new QTreeView();
     m_commandView->setModel(m_commandProxy);
     m_commandView->setRootIsDecorated(false);
@@ -134,15 +134,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_commandView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_commandView->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_commandView->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_commandView->setEditTriggers(QAbstractItemView::NoEditTriggers);    
+    m_commandView->setEditTriggers(QAbstractItemView::NoEditTriggers);
     connect(m_commandView, &QTreeView::doubleClicked, this, &MainWindow::onCommandDoubleClicked);
     connect(m_commandView, &QTreeView::clicked, [this](const QModelIndex &idx){
         QModelIndex s = m_commandProxy->mapToSource(idx);
         if (s.isValid()) {
             QString cmd = m_commandModel->item(s.row(), 0)->text();
             m_commandEdit->setText(cmd);
-            if (m_dockControls) { m_dockControls->setVisible(true); m_dockControls->raise(); 
-            if (m_commandEdit) { m_commandEdit->setFocus(); m_commandEdit->selectAll(); } }}});    
+            if (m_dockControls) { 
+                m_dockControls->setVisible(true); 
+                m_dockControls->raise();
+                if (m_commandEdit) { m_commandEdit->setFocus(); m_commandEdit->selectAll(); } }}});
     m_commandView->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_commandView, &QWidget::customContextMenuRequested, this, [this](const QPoint &pt){
         QModelIndex idx = m_commandView->indexAt(pt);
@@ -154,48 +156,70 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         menu.addAction("Execute", [this, cmd](){ m_commandEdit->setText(cmd); runCommand(); });
         menu.addAction("Edit", [this, s](){ m_commandView->selectionModel()->clear(); m_commandView->setCurrentIndex(m_commandProxy->mapFromSource(s)); editCommand(); });
         menu.addAction("Remove", [this, s](){ m_commandView->selectionModel()->clear(); m_commandView->setCurrentIndex(m_commandProxy->mapFromSource(s)); removeCommand(); });
-        menu.exec(m_commandView->viewport()->mapToGlobal(pt));});    
+        menu.exec(m_commandView->viewport()->mapToGlobal(pt));});
     m_dockCommands = new QDockWidget(tr("Commands"), this);
     m_dockCommands->setObjectName("dockCommands");
     m_dockCommands->setWidget(m_commandView);
     m_dockCommands->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea | Qt::TopDockWidgetArea);
     addDockWidget(Qt::LeftDockWidgetArea, m_dockCommands);
-    splitDockWidget(m_dockCategories, m_dockCommands, Qt::Horizontal);    
+    splitDockWidget(m_dockCategories, m_dockCommands, Qt::Horizontal);
     m_log = new QTextEdit();
     m_log->setReadOnly(true);
-    m_log->setStyleSheet("background: #000; color: #f0f0f0; font-family: monospace;");    
+    m_log->setStyleSheet("background: #000; color: #f0f0f0; font-family: monospace;");
     m_dockLog = new QDockWidget(tr("Log Output"), this);
     m_dockLog->setObjectName("dockLog");
     m_dockLog->setWidget(m_log);
     m_dockLog->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea | Qt::RightDockWidgetArea);
-    addDockWidget(Qt::BottomDockWidgetArea, m_dockLog);    
+    addDockWidget(Qt::BottomDockWidgetArea, m_dockLog);
     m_dockControls = new QDockWidget(tr("Controls"), this);
     m_dockControls->setObjectName("dockControls");
     m_dockControls->setWidget(createControlsWidget());
     m_dockControls->setAllowedAreas(Qt::TopDockWidgetArea | Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    addDockWidget(Qt::TopDockWidgetArea, m_dockControls);    
-    setupSequenceDock();    
+    addDockWidget(Qt::TopDockWidgetArea, m_dockControls);
+    setupSequenceDock();
+    m_swipeBuilder = new SwipeBuilderWidget(m_executor, this);
+    m_swipeBuilder->setAdbPath(m_executor->adbPath());
+    m_dockBuilder = new QDockWidget(tr("Visual Builder"), this);
+    m_dockBuilder->setObjectName("dockBuilder");
+    m_swipeBuilder->setAdbPath(m_executor->adbPath());
+    connect(m_swipeBuilder, &SwipeBuilderWidget::adbStatus, 
+            this, [this](const QString &message, bool isError) {
+        appendLog(message, isError ? "#F44336" : "#00BCD4");
+    });
+    m_dockBuilder = new QDockWidget(tr("Visual Builder"), this);
+    m_dockBuilder->setObjectName("dockBuilder");
+    m_dockBuilder->setWidget(m_swipeBuilder);
+    m_dockBuilder->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    addDockWidget(Qt::RightDockWidgetArea, m_dockBuilder);
+    m_dockBuilder->close(); 
+    connect(m_dockBuilder, &QDockWidget::visibilityChanged, this, [this](bool visible){
+        if (visible) m_swipeBuilder->startMonitoring();
+        else m_swipeBuilder->stopMonitoring();});
+    connect(m_swipeBuilder, &SwipeBuilderWidget::sequenceGenerated, this, [this](const QString &path){
+        appendLog(QString("Sequence saved to JSON: %1. Use 'Load Sequence' to view in Runner.").arg(QFileInfo(path).fileName()), "#4CAF50");});
     m_viewCategoriesAct = m_dockCategories->toggleViewAction();
     m_viewCommandsAct = m_dockCommands->toggleViewAction();
     m_viewLogAct = m_dockLog->toggleViewAction();
     m_viewControlsAct = m_dockControls->toggleViewAction();
-    m_viewSequenceAct = m_dockSequence->toggleViewAction();    
+    m_viewSequenceAct = m_dockSequence->toggleViewAction();
+    m_viewBuilderAct = m_dockBuilder->toggleViewAction();
     QMenu *viewMenu = menuBar()->addMenu("&View");
     viewMenu->addAction(m_viewCategoriesAct);
     viewMenu->addAction(m_viewCommandsAct);
     viewMenu->addAction(m_viewControlsAct);
     viewMenu->addAction(m_viewSequenceAct);
-    viewMenu->addAction(m_viewLogAct);    
+    viewMenu->addAction(m_viewBuilderAct);
+    viewMenu->addAction(m_viewLogAct);
     LogDialog *dlg = new LogDialog(this);
     dlg->setDocument(m_log->document());
     dlg->move(this->x() + this->width() + 20, this->y());
     dlg->show();
-    m_detachedLogDialog = dlg;    
+    m_detachedLogDialog = dlg;
     loadCommands();
-    populateCategoryList();    
+    populateCategoryList();
     if (m_categoryList->count() > 0) m_categoryList->setCurrentRow(0);
     if (!m_settings.contains("windowState")) { restoreDefaultLayout(); }
-    restoreWindowStateFromSettings();    
+    restoreWindowStateFromSettings();
     m_commandView->installEventFilter(this);
     m_categoryList->installEventFilter(this);
     if (m_commandEdit) m_commandEdit->installEventFilter(this);}
@@ -291,10 +315,10 @@ void MainWindow::setupMenus() {
 void MainWindow::ensureJsonPathLocal() {
     m_jsonFile = QDir("/usr/local/etc/adb_shell").filePath("adb_commands.json");}
 
-QWidget* MainWindow::createSequenceTabWidget() {
-    QWidget *w = new QWidget();
-    auto mainLayout = new QVBoxLayout(w);
-    mainLayout->setContentsMargins(5, 5, 5, 5);    
+QWidget* MainWindow::createSequenceWidget() {
+    QWidget *sequenceRunnerWidget = new QWidget();
+    auto mainLayout = new QVBoxLayout(sequenceRunnerWidget);
+    mainLayout->setContentsMargins(5, 5, 5, 5);
     auto loadLayout = new QHBoxLayout();
     QPushButton *loadBtn = new QPushButton("Load Sequence...");
     connect(loadBtn, &QPushButton::clicked, this, &MainWindow::loadSequenceFile);
@@ -315,21 +339,21 @@ QWidget* MainWindow::createSequenceTabWidget() {
     QHBoxLayout *intervalLayout = new QHBoxLayout();
     m_sequenceIntervalToggle = new QCheckBox("Interval (s):");
     connect(m_sequenceIntervalToggle, &QCheckBox::toggled, m_sequenceRunner, &SequenceRunner::setIntervalToggle);
-    intervalLayout->addWidget(m_sequenceIntervalToggle);
+    intervalLayout->addWidget(m_sequenceIntervalToggle); 
     m_sequenceIntervalSpinBox = new QSpinBox();
     m_sequenceIntervalSpinBox->setRange(1, 86400);
     m_sequenceIntervalSpinBox->setValue(60);
     m_sequenceIntervalSpinBox->setMaximumWidth(70);
     connect(m_sequenceIntervalSpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
-            m_sequenceRunner, &SequenceRunner::setIntervalValue);
-    intervalLayout->addWidget(m_sequenceIntervalSpinBox);    
+                m_sequenceRunner, &SequenceRunner::setIntervalValue);
+    intervalLayout->addWidget(m_sequenceIntervalSpinBox);      
     m_sequenceIntervalLabel = new QLabel("Wait: 0s");
     m_sequenceIntervalLabel->setStyleSheet("color: black;");
     intervalLayout->addWidget(m_sequenceIntervalLabel);
-    intervalLayout->addStretch(1);    
+    intervalLayout->addStretch(1);      
     mainLayout->addLayout(intervalLayout);
     mainLayout->addStretch(1);
-    return w;}
+    return sequenceRunnerWidget;}
 
 void MainWindow::showSequencePreview() {
     QStringList commands = m_sequenceRunner->getCommandsAsText();
@@ -353,8 +377,7 @@ void MainWindow::showSequencePreview() {
     clearBtn->setStyleSheet("background-color: #F44336; color: white;");
     connect(clearBtn, &QPushButton::clicked, [this, &dialog, &textEdit](){
         m_sequenceRunner->clearSequence();
-        textEdit->setText("Queue cleared.");
-    });
+        textEdit->setText("Queue cleared.");});
     btnLayout->addWidget(clearBtn);
     QPushButton *closeButton = new QPushButton("Close");
     connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
@@ -365,7 +388,7 @@ void MainWindow::showSequencePreview() {
 void MainWindow::setupSequenceDock() {
     m_dockSequence = new QDockWidget(tr("Sequence"), this);
     m_dockSequence->setObjectName("dockSequence");
-    m_dockSequence->setWidget(createSequenceTabWidget());
+    m_dockSequence->setWidget(createSequenceWidget());
     m_dockSequence->setAllowedAreas(Qt::TopDockWidgetArea | Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea | Qt::BottomDockWidgetArea);
     addDockWidget(Qt::TopDockWidgetArea, m_dockSequence);
     splitDockWidget(m_dockControls, m_dockSequence, Qt::Horizontal);}
@@ -479,8 +502,7 @@ void MainWindow::onSequenceFinished(bool success) {
 void MainWindow::onSequenceCommandExecuting(const QString &cmd, int index, int total) {
     appendLog(QString(">> HEADLESS [%1/%2]: %3").arg(index+1).arg(total).arg(cmd), "#00BCD4");}
 
-void MainWindow::handleSequenceLog(const QString &text, const QString &color) {
-    appendLog(text, color);}
+void MainWindow::handleSequenceLog(const QString &text, const QString &color) {appendLog(text, color);}
 
 void MainWindow::onScheduleButtonClicked() {
     const QString cmdText = m_commandEdit->text().trimmed();
