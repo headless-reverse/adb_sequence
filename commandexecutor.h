@@ -12,6 +12,9 @@ public:
     void runAdbCommand(const QStringList &args);
     void stop();
     void setAdbPath(const QString &path);
+    QString adbPath() const { return m_adbPath; }
+    bool isRunning() const;
+
 signals:
     void outputReceived(const QString &text);
     void errorReceived(const QString &text);
