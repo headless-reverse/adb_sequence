@@ -10,7 +10,13 @@ public:
     explicit SwipeCanvas(SwipeModel *model, QWidget *parent = nullptr);
     void loadFromData(const QByteArray &data);
     
-    void setStatus(const QString &msg, bool isError); 
+    void setStatus(const QString &msg, bool isError);
+    void setDeviceResolution(int width, int height);
+    void setCaptureMode(bool useRaw);
+
+signals:
+    void tapAdded(int x, int y);
+    void swipeAdded(int x1, int y1, int x2, int y2, int duration);
     
 protected:
     void paintEvent(QPaintEvent *) override;
@@ -30,4 +36,7 @@ private:
     int m_offsetY = 0;
     QString m_statusMessage; 
     bool m_isErrorStatus = false;
+    int m_deviceWidth = 0;
+    int m_deviceHeight = 0;
+    bool m_useRawMode = true; // domyślnie RAW
 };
