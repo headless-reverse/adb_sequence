@@ -1,10 +1,12 @@
 #include "SwipeBuilderWidget.h"
 #include "SwipeModel.h"
-#include "SwipeCanvas.h"
+#include "swipecanvas.h"
 #include "KeyboardWidget.h"
 #include "argsparser.h"
 #include "commandexecutor.h"
 #include "ActionEditDialog.h"
+#include "video_client.h"
+#include "control_socket.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -42,14 +44,20 @@
 #include <algorithm>
 #include <QImage> 
 
-SwipeBuilderWidget::SwipeBuilderWidget(CommandExecutor *executor, QWidget *parent)
-    : QWidget(parent), m_executor(executor) {
+SwipeBuilderWidget::SwipeBuilderWidget(CommandExecutor *executor, VideoClient *videoClient, QWidget *parent)
+    : QWidget(parent), m_executor(executor), m_videoClient(videoClient) 
+{
+    if (!m_videoClient) {
+        qFatal("SwipeBuilderWidget: VideoClient is NULL! Check initialization order in MainWindow.");
+    }
+
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     m_model = new SwipeModel(this);
-    m_canvas = new SwipeCanvas(m_model, this);
-    m_canvas->setSizePolicy(QSizePolicy::Expanding,
-                            QSizePolicy::Expanding);
+    ControlSocket *socket = m_videoClient->controlSocket();
+    m_canvas = new SwipeCanvas(m_model, socket, this);
+    m_canvas->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_videoClient->setSwipeCanvas(m_canvas);
     QSplitter *rightSplitter = new QSplitter(Qt::Vertical);
     QWidget *controlsWidget = new QWidget();
     QVBoxLayout *controlsLayout = new QVBoxLayout(controlsWidget);
@@ -65,6 +73,7 @@ SwipeBuilderWidget::SwipeBuilderWidget(CommandExecutor *executor, QWidget *paren
     listHeaderLayout->addStretch(1); 
     controlsLayout->addLayout(listHeaderLayout);
     m_list = new QListWidget();
+    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     setAcceptDrops(true);
     controlsLayout->addWidget(m_list);
     QPushButton *b_toggle_keyboard = new QPushButton("Toggle Keyboard");
@@ -73,11 +82,9 @@ SwipeBuilderWidget::SwipeBuilderWidget(CommandExecutor *executor, QWidget *paren
     controlsLayout->addWidget(b_toggle_keyboard);
     QHBoxLayout *runLayout = new QHBoxLayout();
     m_runButton = new QPushButton("▶ Action");
-    m_runButton->setStyleSheet(
-        "background-color: #4CAF50; color: white;");
+    m_runButton->setStyleSheet("background-color: #4CAF50; color: white;");
     m_runSequenceButton = new QPushButton("▶ Sequence");
-    m_runSequenceButton->setStyleSheet(
-        "background-color: #00BCD4; color: white;");
+    m_runSequenceButton->setStyleSheet("background-color: #00BCD4; color: white;");
     runLayout->addWidget(m_runButton);
     runLayout->addWidget(m_runSequenceButton);
     controlsLayout->addLayout(runLayout);
@@ -111,28 +118,10 @@ SwipeBuilderWidget::SwipeBuilderWidget(CommandExecutor *executor, QWidget *paren
     mainSplitter->setStretchFactor(0, 3);
     mainSplitter->setStretchFactor(1, 1);
     mainLayout->addWidget(mainSplitter);
-    /* ADB processes */
-    m_adbProcess = new QProcess(this);
-    connect(m_adbProcess, &QProcess::errorOccurred, this,
-            [this](QProcess::ProcessError error) {
-                m_lastError = error;
-                if (error == QProcess::FailedToStart) {
-                    emit adbStatus(
-                        "ADB command not found! Check if path is set correctly.",
-                        true);
-                } else {
-                    emit adbStatus(
-                        QString("ADB process error: %1").arg(error), true);}});
-    connect(m_adbProcess,
-            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &SwipeBuilderWidget::onScreenshotReady);
     m_resolutionProcess = new QProcess(this);
     connect(m_resolutionProcess,
             QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &SwipeBuilderWidget::onResolutionReady);
-    m_refreshTimer.setInterval(33);
-    connect(&m_refreshTimer, &QTimer::timeout, this,
-            &SwipeBuilderWidget::captureScreenshot);
     connect(m_model, &SwipeModel::modelChanged, this,
             &SwipeBuilderWidget::updateList);
     connect(b_export, &QPushButton::clicked, this,
@@ -179,103 +168,52 @@ SwipeBuilderWidget::SwipeBuilderWidget(CommandExecutor *executor, QWidget *paren
                        &SwipeBuilderWidget::fetchDeviceResolution);}
 
 SwipeBuilderWidget::~SwipeBuilderWidget() {
-    stopMonitoring();
-    if (m_adbProcess) {
-        m_adbProcess->kill();
-        m_adbProcess->waitForFinished(500);}}
+    if (m_videoClient) {
+        m_videoClient->stopStream();}
+    if (m_resolutionProcess) {
+        m_resolutionProcess->kill();
+        m_resolutionProcess->waitForFinished(500);}}
 
 void SwipeBuilderWidget::setCanvasStatus(const QString &message, bool isError) {m_canvas->setStatus(message, isError);}
 
 void SwipeBuilderWidget::setAdbPath(const QString &path) {if (!path.isEmpty()) m_adbPath = path;}
 
 void SwipeBuilderWidget::startMonitoring() {
-    if (!m_refreshTimer.isActive() &&
-        m_adbProcess->state() == QProcess::NotRunning) {
-        m_refreshTimer.start();}}
+    if (!m_videoClient) return;
+    if (m_useRaw) {
+        QString serial = m_executor ? m_executor->targetDevice() : QString();
+        if (serial.isEmpty()) {
+            setCanvasStatus(tr("No target device for video stream."), true);
+            return;}
+        setCanvasStatus(tr("Starting video stream..."), false);
+        m_videoClient->startStream(serial, 7373, 7373);
+    } else {
+        setCanvasStatus(tr("RAW/video disabled - nothing to monitor."), false);}}
 
-void SwipeBuilderWidget::stopMonitoring() {m_refreshTimer.stop();}
+void SwipeBuilderWidget::stopMonitoring() {
+    if (m_videoClient) {
+        m_videoClient->stopStream();
+        setCanvasStatus(tr("Video stream stopped."), false);}}
 
 void SwipeBuilderWidget::setRunSequenceButtonEnabled(bool enabled) {
     if (m_runSequenceButton) m_runSequenceButton->setEnabled(enabled);}
 
-void SwipeBuilderWidget::captureScreenshot() {
-    if (m_adbProcess->state() != QProcess::NotRunning) return;
-    if (m_deviceWidth == 0 || m_deviceHeight == 0) return;
-    QStringList args;
-    QString targetSerial = m_executor->targetDevice();
-    if (!targetSerial.isEmpty()) args << "-s" << targetSerial;
-    args << "exec-out" << "screencap";
-    if (!m_useRaw) {
-        args << "-p";}    
-    m_lastError = QProcess::UnknownError;
-    m_adbProcess->setProgram(m_adbPath);
-    m_adbProcess->setArguments(args);
-    m_adbProcess->start();}
-
 void SwipeBuilderWidget::onRawToggleChanged(int state) {
-    m_useRaw = (state == Qt::Checked);
-    m_canvas->setCaptureMode(m_useRaw); 
-    if (m_useRaw) {
-        setCanvasStatus(tr("Screen capture mode switched to RAW (Fast, but without rotation fix)."), false);
+    bool enableVideo = (state == Qt::Checked);
+    m_useRaw = enableVideo; 
+    if (enableVideo) {
+        if (m_videoClient) {
+            setCanvasStatus(tr("Uruchamianie podglądu wideo..."), false);
+            QString serial = m_executor ? m_executor->targetDevice() : QString();
+            if (!serial.isEmpty()) {
+                m_videoClient->startStream(serial, 7373, 7373);
+            } else {
+                setCanvasStatus(tr("Brak urządzenia docelowego - nie można uruchomić strumienia."), true);}}
     } else {
-        setCanvasStatus(tr("Screen capture mode switched to PNG (Stable, with rotation fix, slower)."), false);}
-    captureScreenshot();}
-
-void SwipeBuilderWidget::onScreenshotReady(int exitCode, QProcess::ExitStatus) {
-    if (m_lastError == QProcess::FailedToStart) {
-        m_refreshTimer.start();
-        return;}
-    QByteArray data = m_adbProcess->readAllStandardOutput();
-
-    if (exitCode != 0) {
-        QByteArray err = m_adbProcess->readAllStandardError();
-        if (m_lastMonitoringStatus != exitCode) {
-            QString mode = m_useRaw ? "RAW" : "PNG";
-            emit adbStatus(
-                QString("%1 screenshot failed. Exit code %2. Error: %3")
-                    .arg(mode).arg(exitCode).arg(QString::fromUtf8(err).trimmed()),
-                true);
-            m_lastMonitoringStatus = exitCode;}
-        Q_UNUSED(err);
-        return;}
-    if (!m_useRaw) {
-        m_consecutiveRawErrors = 0;
-        m_canvas->loadFromData(data);
-        if (m_verboseScreenshots) {
-            emit adbStatus("Screenshot OK (PNG).", false);}
-        m_lastMonitoringStatus = 0;
-        return;}
-    const int expected = m_deviceWidth * m_deviceHeight * 4;    // RGBA8888
-    if (data.size() < expected) {
-        ++m_consecutiveRawErrors;
-        if (m_consecutiveRawErrors > 3 && m_useRaw) {
-            m_useRaw = false; 
-            if (m_useRawCheckbox) { 
-                m_useRawCheckbox->setChecked(false);}
-            m_consecutiveRawErrors = 0;
-            setCanvasStatus("RAW capture repeatedly failed – switching to PNG mode.", true);
-            m_canvas->setCaptureMode(false); 
-            captureScreenshot(); 
-            return; }
-        if (m_lastMonitoringStatus != 1) {
-            emit adbStatus("RAW frame too small – skipping.", true);
-            m_lastMonitoringStatus = 1;}
-        return;}
-    int headerSize = data.size() - expected;
-    if (headerSize < 0) headerSize = 0;
-
-    if (m_rawBuffer.size() != expected) {
-        m_rawBuffer.resize(expected);
-        m_rawImage = QImage(reinterpret_cast<const uchar *>(m_rawBuffer.constData()),
-                            m_deviceWidth, m_deviceHeight,
-                            QImage::Format_RGBA8888);}
-    memcpy(m_rawBuffer.data(), data.constData() + headerSize, expected);
-    m_consecutiveRawErrors = 0;
-    m_canvas->loadFromData(m_rawBuffer);
-    if (m_verboseScreenshots) {
-        emit adbStatus("Screenshot OK (RAW).", false);}
-    m_lastMonitoringStatus = 0;}
-
+        if (m_videoClient) {
+            setCanvasStatus(tr("Podgląd zatrzymany."), false);
+            m_videoClient->stopStream();
+            m_canvas->update(); }}}
 
 void SwipeBuilderWidget::onKeyboardCommandGenerated(const QString &command) {
     if (command.startsWith("input keyevent")) {
@@ -286,7 +224,6 @@ void SwipeBuilderWidget::onKeyboardCommandGenerated(const QString &command) {
     QString logCmd = command.simplified();
     if (logCmd.length() > 50) logCmd = logCmd.left(50) + "...";
     emit adbStatus(QString("KEYBOARD: Added: %1").arg(logCmd), false);}
-
 
 void SwipeBuilderWidget::updateList() {
     m_list->clear();
@@ -317,7 +254,6 @@ void SwipeBuilderWidget::updateList() {
         ++idx;}
     m_list->scrollToBottom();}
 
-
 void SwipeBuilderWidget::runSelectedAction() {
     int row = m_list->currentRow();
     if (row < 0 || row >= m_model->actions().count()) {
@@ -328,23 +264,18 @@ void SwipeBuilderWidget::runSelectedAction() {
     QString runMode = (a.type == SwipeAction::Command) ? a.runMode : "root";
     if (fullCommand.isEmpty()) {
         emit adbStatus("Empty action or command.", true);
-        return;
-    }
+        return;}
     if (m_executor->isRunning()) {
         emit adbStatus("ADB is busy running another command...", true);
-        return;
-    }
+        return;}
     QStringList args;
     QStringList parsed = ArgsParser::parse(fullCommand);
-
     if (runMode.compare("adb", Qt::CaseInsensitive) == 0) {
         args = parsed;
     } else if (runMode.compare("root", Qt::CaseInsensitive) == 0) {
         args << "shell" << "su" << "-c" << fullCommand;
     } else { // shell
-        args << "shell" << parsed;
-    }
-
+        args << "shell" << parsed;}
     QString logCmd = args.join(' ').simplified();
     if (logCmd.length() > 80) logCmd = logCmd.left(80) + "...";
 
@@ -356,7 +287,6 @@ void SwipeBuilderWidget::runSelectedAction() {
     QListWidgetItem *item = m_list->item(row);
     if (item) item->setBackground(QBrush(QColor("#FFC107")));}
 
-
 void SwipeBuilderWidget::onAdbCommandFinished(int exitCode, QProcess::ExitStatus) {
     int finishedRow = -1;
     for (int i = 0; i < m_list->count(); ++i) {
@@ -364,18 +294,13 @@ void SwipeBuilderWidget::onAdbCommandFinished(int exitCode, QProcess::ExitStatus
         if (item->background().color() == QColor("#FFC107")) {
             finishedRow = i;
             item->setBackground(Qt::NoBrush);
-            break;
-        }
-    }
-
+            break;}}
     if (exitCode == 0) {
         if (finishedRow != -1) {
             QListWidgetItem *item = m_list->item(finishedRow);
             if (item) item->setBackground(QBrush(QColor("#4CAF50")));
             QTimer::singleShot(200, this, [item]() {
-                if (item) item->setBackground(Qt::NoBrush);
-            });
-        }
+                if (item) item->setBackground(Qt::NoBrush);});}
         emit adbStatus("OK", false);
     } else {
         if (finishedRow != -1) {
@@ -385,14 +310,12 @@ void SwipeBuilderWidget::onAdbCommandFinished(int exitCode, QProcess::ExitStatus
                 if (item) item->setBackground(Qt::NoBrush);});}
         emit adbStatus(QString("Error: %1").arg(exitCode), true);}}
 
-
 void SwipeBuilderWidget::saveJson() {
     QString path = QFileDialog::getSaveFileName(this,
                                                tr("Save Sequence"),
                                                QString(),
                                                tr("JSON Files (*.json)"));
     if (path.isEmpty()) return;
-
     QFile f(path);
     if (f.open(QIODevice::WriteOnly)) {
         QJsonDocument doc(m_model->toJsonSequence());
@@ -400,31 +323,23 @@ void SwipeBuilderWidget::saveJson() {
         f.close();
         emit sequenceGenerated(path);
     } else {
-        emit adbStatus("Failed to save file.", true);
-    }
-}
-
+        emit adbStatus("Failed to save file.", true);}}
 
 bool SwipeBuilderWidget::loadSequenceFromJsonArray(const QJsonArray &array) {
     m_model->clear();
     bool ok = true;
-
     QRegularExpression tapRx("^input\\s+tap\\s+(\\d+)\\s+(\\d+)(?:\\s+\\d+)?$");
     QRegularExpression swipeRx("^input\\s+swipe\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)(?:\\s+(\\d+))?$");
-
     for (const QJsonValue &val : array) {
         if (!val.isObject()) {
             ok = false;
-            break;
-        }
+            break;}
         QJsonObject obj = val.toObject();
         QString cmd = obj.value("command").toString().trimmed();
         int delayMs = obj.value("delayAfterMs").toInt(100);
         QString runMode = obj.value("runMode").toString("shell").toLower();
-
         QRegularExpressionMatch tapMatch = tapRx.match(cmd);
         QRegularExpressionMatch swipeMatch = swipeRx.match(cmd);
-
         if (tapMatch.hasMatch()) {
             int x = tapMatch.captured(1).toInt();
             int y = tapMatch.captured(2).toInt();
@@ -432,8 +347,7 @@ bool SwipeBuilderWidget::loadSequenceFromJsonArray(const QJsonArray &array) {
             if (m_model->actions().last().runMode.toLower() != runMode) {
                  SwipeAction a = m_model->actions().last();
                  a.runMode = runMode;
-                 m_model->editActionAt(m_model->actions().count() - 1, a);
-            }
+                 m_model->editActionAt(m_model->actions().count() - 1, a);}
         } else if (swipeMatch.hasMatch()) {
             int x1 = swipeMatch.captured(1).toInt();
             int y1 = swipeMatch.captured(2).toInt();
@@ -444,8 +358,7 @@ bool SwipeBuilderWidget::loadSequenceFromJsonArray(const QJsonArray &array) {
             if (m_model->actions().last().runMode.toLower() != runMode) {
                  SwipeAction a = m_model->actions().last();
                  a.runMode = runMode;
-                 m_model->editActionAt(m_model->actions().count() - 1, a);
-            }
+                 m_model->editActionAt(m_model->actions().count() - 1, a);}
         } else if (cmd.startsWith("input keyevent")) {
             QString key = cmd.mid(15).trimmed();
             if (!key.isEmpty())
@@ -453,12 +366,8 @@ bool SwipeBuilderWidget::loadSequenceFromJsonArray(const QJsonArray &array) {
             else
                 m_model->addCommand(cmd, delayMs, runMode);
         } else {
-            m_model->addCommand(cmd, delayMs, runMode);
-        }
-    }
-    return ok;
-}
-
+            m_model->addCommand(cmd, delayMs, runMode);}}
+    return ok;}
 
 QString SwipeBuilderWidget::getAdbCommandForAction(const SwipeAction &action,bool) const {
     switch (action.type) {
@@ -478,9 +387,7 @@ QString SwipeBuilderWidget::getAdbCommandForAction(const SwipeAction &action,boo
     case SwipeAction::Key:
         return QString("input keyevent %1").arg(action.command);
     default:
-        return QString();
-    }
-}
+        return QString();}}
 
 void SwipeBuilderWidget::clearActions() {m_model->clear();}
 
@@ -495,16 +402,13 @@ void SwipeBuilderWidget::onKeyboardToggleClicked() {
         btn->setText(m_keyboardWidget->isVisible()
                              ? "Hide Virtual Keyboard"
                              : "Toggle Virtual Keyboard");
-    }
-}
+}}
 
 void SwipeBuilderWidget::editSelected() {
     int row = m_list->currentRow();
     if (row < 0) return;
     SwipeAction cur = m_model->actionAt(row);
-    
     ActionEditDialog dlg(cur, this); 
-    
     if (dlg.exec() == QDialog::Accepted) {
         m_model->editActionAt(row, cur);}}
 
@@ -558,50 +462,32 @@ void SwipeBuilderWidget::dropEvent(QDropEvent *event) {
     event->acceptProposedAction();}
 
 void SwipeBuilderWidget::fetchDeviceResolution() {
+    if (!m_resolutionProcess) return;
     if (m_resolutionProcess->state() != QProcess::NotRunning) return;
-    emit adbStatus(tr("Fetching device resolution (adb shell wm size)..."),
-                     false);
-    QStringList args;
     QString targetSerial = m_executor->targetDevice();
-    if (!targetSerial.isEmpty())
-        args << "-s" << targetSerial;
-    args << "shell" << "wm" << "size";
-
+    if (targetSerial.isEmpty()) return;
+    QStringList args;
+    args << "-s" << targetSerial << "shell" << "wm" << "size";
     m_resolutionProcess->setProgram(m_adbPath);
     m_resolutionProcess->setArguments(args);
     m_resolutionProcess->start();}
 
 void SwipeBuilderWidget::onResolutionReady(int exitCode, QProcess::ExitStatus) {
     if (exitCode == 0) {
-        QByteArray out = m_resolutionProcess->readAllStandardOutput();
-        QRegularExpression rx("Physical size:\\s*(\\d+)x(\\d+)");
-        QRegularExpressionMatch match = rx.match(QString::fromUtf8(out));
-
+        QString output = m_resProcess->readAllStandardOutput();
+        QRegularExpression re("(\\d+)x(\\d+)");
+        auto match = re.match(output);
         if (match.hasMatch()) {
-            m_deviceWidth  = match.captured(1).toInt();
-            m_deviceHeight = match.captured(2).toInt();
+            int w = match.captured(1).toInt();
+            int h = match.captured(2).toInt();
+            m_canvas->setDeviceResolution(w, h);
 
-            m_canvas->setDeviceResolution(m_deviceWidth,
-                                          m_deviceHeight);
-            emit adbStatus(
-                QString("Resolution found: %1x%2. Starting RAW capture.")
-                    .arg(m_deviceWidth)
-                    .arg(m_deviceHeight),
-                false);
-            startMonitoring();
-        } else {
-            emit adbStatus(
-                tr("Failed to parse device resolution from 'wm size'. "
-                   "Is device connected?"),
-                true);
-            QTimer::singleShot(2000,
-                               this,
-                               &SwipeBuilderWidget::fetchDeviceResolution);}
-    } else {
-        emit adbStatus(
-            QString("Error fetching resolution. Exit code %1")
-                .arg(exitCode),
-            true);}}
+            if (m_useRaw && m_videoClient) {
+                 m_videoClient->startStream(m_executor->targetDevice(), 7373, 7373);
+            }
+        }
+    }
+}
 
 void SwipeBuilderWidget::loadJson() {
     QString path = QFileDialog::getOpenFileName(this,
@@ -609,7 +495,8 @@ void SwipeBuilderWidget::loadJson() {
                                                QString(),
                                                tr("JSON Files (*.json)"));
     if (!path.isEmpty())
-        loadSequence(path);}
+        loadSequence(path);
+}
 
 void SwipeBuilderWidget::runFullSequence() {
     if (m_model->actions().isEmpty()) {
@@ -646,12 +533,18 @@ void SwipeBuilderWidget::onSequenceCommandExecuting(const QString &cmd, int inde
     Q_UNUSED(cmd);
     Q_UNUSED(total);
     int listIndex = index - 1;
-    
     if (listIndex >= 0 && listIndex < m_list->count()) {
         QListWidgetItem *item = m_list->item(listIndex);
         m_list->setCurrentItem(item); 
-        m_list->scrollToItem(item);
+        m_list->scrollToItem(item);}}
+
+void SwipeBuilderWidget::handleCanvasScreenshotReady(const QImage &image) {
+    if (image.isNull()) {
+        qWarning() << "Otrzymano pusty zrzut ekranu";
+        return;
     }
+    // mozna. zapisać obraz do pliku (opcjonalnie)
+    qDebug() << "Zrzut ekranu gotowy, rozmiar:" << image.size();
 }
 
 #include "SwipeBuilderWidget.moc"
