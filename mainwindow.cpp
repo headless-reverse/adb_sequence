@@ -93,8 +93,13 @@ MainWindow::MainWindow(QWidget *parent, const QString &adbPath, const QString &t
     m_executor = new CommandExecutor(this);
     m_executor->setAdbPath(adbPath);
     m_executor->setTargetDevice(targetSerial);
+    m_videoClient = new VideoClient(this);
+    m_videoClient->setAdbPath(adbPath);
+    m_videoClient->setDeviceSerial(targetSerial);
+
     m_commandTimer = new QTimer(this);
-    connect(m_commandTimer, &QTimer::timeout, this, &MainWindow::executeScheduledCommand);
+    connect(m_commandTimer, &QTimer::timeout, this, &MainWindow::executeScheduledCommand); 
+
     m_sequenceRunner = new SequenceRunner(m_executor, this);
     connect(m_sequenceRunner, &SequenceRunner::sequenceStarted, this, &MainWindow::onSequenceStarted);
     connect(m_sequenceRunner, &SequenceRunner::sequenceFinished, this, &MainWindow::onSequenceFinished);
@@ -192,7 +197,7 @@ MainWindow::MainWindow(QWidget *parent, const QString &adbPath, const QString &t
 
     setupSequenceDock();
     // Doki: Visual JSON/SwipeBuilder
-    m_swipeBuilder = new SwipeBuilderWidget(m_executor, this);
+    m_swipeBuilder = new SwipeBuilderWidget(m_executor, m_videoClient, this);
     m_swipeBuilder->setAdbPath(m_executor->adbPath());
     connect(m_swipeBuilder, &SwipeBuilderWidget::adbStatus,
             this, [this](const QString &message, bool isError) {
