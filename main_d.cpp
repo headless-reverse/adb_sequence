@@ -20,7 +20,8 @@ struct AppConfig {
     quint16 serverPort = DEFAULT_PORT;
     QString sequencePath;
     bool isServerMode = false;
-    bool isHeadlessRun = false;};
+    bool isHeadlessRun = false;
+};
 
 AppConfig loadConfiguration(const QCommandLineParser &parser) {
     AppConfig config;
@@ -33,18 +34,24 @@ AppConfig loadConfiguration(const QCommandLineParser &parser) {
         settings.endGroup();
         qDebug() << "Wczytano konfiguracje z pliku:" << CONFIG_PATH;
     } else {
-        qDebug() << "Nie znaleziono pliku konfiguracyjnego, uzycie wartosci domyslnych.";}
+        qDebug() << "Nie znaleziono pliku konfiguracyjnego, uzycie wartosci domyslnych.";
+    }
     if (parser.isSet("adb-path")) {
-        config.adbPath = parser.value("adb-path");}
+        config.adbPath = parser.value("adb-path");
+    }
     if (parser.isSet("device-serial")) {
-        config.targetSerial = parser.value("device-serial");}
+        config.targetSerial = parser.value("device-serial");
+    }
     if (parser.isSet("port")) {
-        config.serverPort = parser.value("port").toUShort();}
+        config.serverPort = parser.value("port").toUShort();
+    }
     config.isServerMode = parser.isSet("server");
     if (parser.isSet("sequence")) {
         config.isHeadlessRun = true;
-        config.sequencePath = parser.value("sequence");}
-    return config;}
+        config.sequencePath = parser.value("sequence");
+    }
+    return config;
+}
 
 int runHeadless(int argc, char *argv[], const AppConfig &config) {
     QCoreApplication a(argc, argv);
@@ -59,16 +66,20 @@ int runHeadless(int argc, char *argv[], const AppConfig &config) {
     });
     if (!runner.appendSequence(config.sequencePath)) {
         qCritical() << "BLAD: Nie udalo sie zaladowac sekwencji z:" << config.sequencePath;
-        return 1;}
+        return 1;
+    }
     qDebug() << "Sekwencja zaladowana. Rozpoczynanie wykonania...";
     runner.startSequence();
-    return a.exec(); }
+    return a.exec();
+}
 
 int runServer(int argc, char *argv[], const AppConfig &config) {
     QCoreApplication a(argc, argv); 
     qDebug() << "Uruchamianie serwera WebSocket...";
     RemoteServer server(config.adbPath, config.targetSerial, config.serverPort);
-    return a.exec(); }
+    qDebug() << "RemoteServer created, listening on port" << config.serverPort;
+    return a.exec();
+}
 
 int main(int argc, char *argv[]) {
     QCoreApplication::setApplicationName("adb_sequence_d"); 
@@ -101,4 +112,6 @@ int main(int argc, char *argv[]) {
         return runHeadless(argc, argv, config);
     } else {
         qDebug() << "Brak trybu (serwer lub sekwencja) - nic nie robie. Użyj --help.";
-        return 0;}}
+        return 0;
+    }
+}
