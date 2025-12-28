@@ -3,6 +3,7 @@
 
 #include "systemcmd.h"
 #include "SwipeBuilderWidget.h"
+#include "video_client.h"
 #include <QMainWindow>
 #include <QMap>
 #include <QVector>
@@ -104,6 +105,7 @@ private:
     QPushButton *m_refreshDevicesBtn = nullptr;
     QMap<QString, QVector<SystemCmd>> m_commands;
     CommandExecutor *m_executor = nullptr;
+    VideoClient *m_videoClient = nullptr;
     QString m_adbPath = QStringLiteral("adb");
     QString m_jsonFile = QStringLiteral("adb_commands.json");
     QStringList m_inputHistory;
