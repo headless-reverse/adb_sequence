@@ -8,7 +8,6 @@ public:
     explicit AdbClient(QObject *parent = nullptr);
     void setTargetDevice(const QString &serial);
     QString targetDevice() const { return m_targetSerial; }
-    // Łączy z serwerem ADB (domyślnie localhost:5037)
     void connectToAdbServer(const QString &host = "127.0.0.1", quint16 port = 5037);
     void sendAdbCommand(const QString &command);
     void sendDeviceCommand(const QString &command);
