@@ -5,7 +5,6 @@
 
 AdbClient::AdbClient(QObject *parent)
     : QObject(parent), m_socket(new QTcpSocket(this)) {
-    // Połączenie sygnałów gniazda
     connect(m_socket, &QTcpSocket::connected, this, &AdbClient::onConnected);
     connect(m_socket, &QTcpSocket::disconnected, this, &AdbClient::onDisconnected);
     connect(m_socket, &QTcpSocket::readyRead, this, &AdbClient::onReadyRead);
@@ -37,8 +36,8 @@ void AdbClient::onErrorOccurred(QTcpSocket::SocketError socketError) {
     if (socketError != QTcpSocket::RemoteHostClosedError) {
         emit adbError(QString("Błąd połączenia z ADB: %1").arg(m_socket->errorString()));}}
 
+
 void AdbClient::writeAdbHeader(const QString &command) {
-    // Nagłówek ADB  4-bajtowa długość w HEX ASCII
     QByteArray header = QByteArray::number(command.length(), 16).rightJustified(4, '0').toUpper();
     m_socket->write(header);
     m_socket->write(command.toUtf8());
