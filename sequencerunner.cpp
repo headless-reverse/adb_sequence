@@ -1,6 +1,7 @@
 #include "sequencerunner.h"
 #include "commandexecutor.h"
 #include "argsparser.h"
+#include "adb_client.h"
 #include <QFile>
 #include <QTextStream>
 #include <QJsonDocument>
