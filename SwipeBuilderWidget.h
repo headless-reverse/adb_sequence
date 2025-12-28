@@ -4,34 +4,35 @@
 #include <QTimer>
 #include <QListWidget>
 #include "SwipeModel.h"
-#include "SwipeCanvas.h"
+#include "swipecanvas.h"
 #include "KeyboardWidget.h"
 #include "commandexecutor.h"
 #include <QJsonArray>
 #include <QPushButton>
 #include <QCheckBox>
 
+class CommandExecutor;
+class VideoClient;
+
 class SwipeBuilderWidget : public QWidget {
     Q_OBJECT
 public:
-    explicit SwipeBuilderWidget(CommandExecutor *executor,
-                               QWidget *parent = nullptr);
-    ~SwipeBuilderWidget();
+    explicit SwipeBuilderWidget(CommandExecutor *executor, VideoClient *videoClient, QWidget *parent = nullptr);
+    ~SwipeBuilderWidget() override;
 
+    SwipeCanvas* canvas() const { return m_canvas; }
     void setAdbPath(const QString &path);
     void startMonitoring();
     void stopMonitoring();
-    void captureScreenshot();
     void setCanvasStatus(const QString &message, bool isError);
     void setRunSequenceButtonEnabled(bool enabled);
     void setVerboseScreenshots(bool v) { m_verboseScreenshots = v; }
     bool verboseScreenshots() const { return m_verboseScreenshots; }
-
     SwipeModel *model() const { return m_model; }
     void loadSequence(const QString &filePath);
     void loadJson();
     void runFullSequence();
-
+    
 signals:
     void adbStatus(const QString &message, bool isError);
     void sequenceGenerated(const QString &filePath);
@@ -41,7 +42,6 @@ public slots:
 	void onSequenceCommandExecuting(const QString &cmd, int index, int total);
 
 private slots:
-    void onScreenshotReady(int exitCode, QProcess::ExitStatus);
     void onKeyboardCommandGenerated(const QString &command);
     void onKeyboardToggleClicked();
     void updateList();
@@ -57,6 +57,7 @@ private slots:
     void onRawToggleChanged(int state);
     void onResolutionReady(int exitCode, QProcess::ExitStatus);
     void fetchDeviceResolution();
+    void handleCanvasScreenshotReady(const QImage &image);
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
@@ -68,14 +69,18 @@ private:
     SwipeCanvas     *m_canvas = nullptr;
     KeyboardWidget  *m_keyboardWidget = nullptr;
     QListWidget     *m_list = nullptr;
-    QProcess        *m_adbProcess = nullptr;
+
     QProcess        *m_resolutionProcess = nullptr;
-    QTimer           m_refreshTimer;
     QProcess::ProcessError m_lastError = QProcess::UnknownError;
+    QProcess *m_resProcess = nullptr;
+
     CommandExecutor *m_executor = nullptr;
+    VideoClient     *m_videoClient = nullptr;
+
     QPushButton     *m_runButton = nullptr;
     QPushButton     *m_runSequenceButton = nullptr;
-    QCheckBox       *m_useRawCheckbox = nullptr; //
+    QCheckBox       *m_useRawCheckbox = nullptr;
+
     QByteArray       m_rawBuffer;
     QImage           m_rawImage;
     bool             m_useRaw = true;
@@ -85,6 +90,7 @@ private:
     int              m_deviceWidth = 0;
     int              m_deviceHeight = 0;
     int              m_lastMonitoringStatus = -1;
+
     bool loadSequenceFromJsonArray(const QJsonArray &array);
     QString getAdbCommandForAction(const SwipeAction &action,
                                    bool forceRoot = false) const;
