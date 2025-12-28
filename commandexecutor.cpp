@@ -99,6 +99,7 @@ void CommandExecutor::onShellProcessFinished(int exitCode, QProcess::ExitStatus 
 }
 
 void CommandExecutor::onAdbClientError(const QString &message) {
+    // Przekazanie błędu z AdbClienta do głównego dziennika
     emit errorReceived(QString("[ADB SOCKET ERROR] %1").arg(message));
     emit finished(1, QProcess::NormalExit); }
 
