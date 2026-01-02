@@ -53,13 +53,20 @@ public final class SurfaceControl {
 
     public static IBinder getBuiltInDisplay() {
         try {
-            Method method;
             if (Build.VERSION.SDK_INT < 29) {
-                method = CLASS.getMethod("getBuiltInDisplay", int.class);
+                Method method = CLASS.getMethod("getBuiltInDisplay", int.class);
                 return (IBinder) method.invoke(null, 0);
             } else {
-                method = CLASS.getMethod("getInternalDisplayToken");
-                return (IBinder) method.invoke(null);
+                try {
+                    Method method = CLASS.getMethod("getInternalDisplayToken");
+                    return (IBinder) method.invoke(null);
+                } catch (NoSuchMethodException e) {
+                    long[] ids = (long[]) CLASS.getMethod("getPhysicalDisplayIds").invoke(null);
+                    if (ids != null && ids.length > 0) {
+                        return (IBinder) CLASS.getMethod("getPhysicalDisplayToken", long.class).invoke(null, ids[0]);
+                    }
+                    throw e;
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
