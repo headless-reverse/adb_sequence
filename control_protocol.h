@@ -1,7 +1,8 @@
 #pragma once
 #include <stdint.h>
 
-#define CONTROL_MAGIC 0x41444253 // "ADBS"
+#define CONTROL_MAGIC 0x41444253
+#define PROTOCOL_HEAD 0x55
 
 enum ControlEventType : uint8_t {
     EVENT_TYPE_KEY         = 1,
@@ -15,10 +16,12 @@ enum ControlEventType : uint8_t {
 
 #pragma pack(push, 1)
 struct ControlPacket {
-    uint32_t magic;
-    uint8_t  type;
+    uint8_t head;     // Bajt 0x55
+    uint32_t magic;   // "ADBS"
+    uint8_t type;
     uint16_t x;
     uint16_t y;
     uint16_t data;
-};
+    uint8_t crc;
+} __attribute__((packed));
 #pragma pack(pop)
