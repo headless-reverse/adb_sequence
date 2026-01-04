@@ -6,12 +6,16 @@ import android.media.MediaFormat;
 import android.view.Surface;
 import java.io.DataOutputStream;
 import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.WritableByteChannel;
 
 public class ScreenEncoder {
     private MediaCodec encoder;
     private final int width;
     private final int height;
     private final int bitrate;
+    
+    private static final byte PACKET_TYPE_VIDEO = 1;
 
     public ScreenEncoder(int width, int height, int bitrate) {
         this.width = width;
@@ -19,34 +23,24 @@ public class ScreenEncoder {
         this.bitrate = bitrate;
     }
 
-    public void stream(Surface surface, DataOutputStream out) throws Exception {
+    public void stream(DataOutputStream out) throws Exception {
         MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
-        
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, 60);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
-        
         format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
         format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel1);
-        
         try {
             format.setInteger("prepend-sps-pps-to-idr-frames", 1);
-        } catch (Exception e) {
-            // Ignoruj, jeśli nie wspiera, Android 9 powinien byc ok
-        }
-
-        format.setInteger(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1000000 / 60);
-
+        } catch (Exception ignored) {}
+        format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1000000 / 30); 
         encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-        
         Surface inputSurface = encoder.createInputSurface();
-        
         Server.createDisplayMirror(inputSurface, width, height);
-
         encoder.start();
-        
+        WritableByteChannel channel = Channels.newChannel(out);
         try {
             MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
             while (!Thread.interrupted()) {
@@ -54,38 +48,26 @@ public class ScreenEncoder {
                 
                 if (outputBufferIndex >= 0) {
                     ByteBuffer buf = encoder.getOutputBuffer(outputBufferIndex);
-                    
                     if (buf != null && bufferInfo.size > 0) {
-                        ((java.nio.Buffer) buf).position(bufferInfo.offset);
-                        ((java.nio.Buffer) buf).limit(bufferInfo.offset + bufferInfo.size);
-                        out.writeByte(1); // TYPE_VIDEO (0x01)
+                        out.writeByte(PACKET_TYPE_VIDEO);
                         out.writeInt(bufferInfo.size);
-                        
-                        byte[] outData = new byte[bufferInfo.size];
-                        buf.get(outData);
-                        out.write(outData);
-                        out.flush();
-                    }
-
+                        buf.position(bufferInfo.offset);
+                        buf.limit(bufferInfo.offset + bufferInfo.size);
+                        channel.write(buf);
+                        out.flush();}
                     encoder.releaseOutputBuffer(outputBufferIndex, false);
                 } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                }
-            }
+                    System.out.println("Encoder format changed: " + encoder.getOutputFormat());}}
         } finally {
-            cleanup(inputSurface);
-        }
-    }
+            cleanup(inputSurface);}}
 
     private void cleanup(Surface inputSurface) {
         try {
             if (encoder != null) {
                 encoder.stop();
-                encoder.release();
-            }
+                encoder.release();}
             if (inputSurface != null) {
-                inputSurface.release();
-            }
-        } catch (Exception e) {
-        }
+                inputSurface.release();}
+        } catch (Exception ignored) {}
     }
 }
