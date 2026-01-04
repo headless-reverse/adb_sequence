@@ -14,6 +14,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     WebSockets 
     OpenGLWidgets
     OpenGL
+    Network
 )
 
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann/json.hpp")
@@ -42,6 +43,7 @@ set(SHARED_SOURCES
     control_socket.cpp
     swipecanvas.cpp
     SwipeModel.cpp
+    hardware_grabbed.cpp
 )
 
 set(SHARED_HEADERS
@@ -56,6 +58,7 @@ set(SHARED_HEADERS
     control_socket.h
     swipecanvas.h
     SwipeModel.h
+    hardware_grabbed.h
 )
 
 add_library(adb_shared_components STATIC ${SHARED_SOURCES} ${SHARED_HEADERS})
@@ -66,6 +69,7 @@ target_link_libraries(adb_shared_components
     PRIVATE
         Qt6::Core
         Qt6::Gui
+        Qt6::Network
         Qt6::WebSockets
         Qt6::OpenGLWidgets
         Qt6::OpenGL
@@ -86,6 +90,7 @@ target_link_libraries(adb_sequence_d
     PUBLIC
         adb_shared_components
         Qt6::Core
+        Qt6::Network
         Qt6::Gui
         Qt6::WebSockets
         Qt6::OpenGLWidgets
@@ -105,6 +110,8 @@ qt_add_executable(adb_sequence
     RecordAction.h
     ActionEditDialog.cpp
     ActionEditDialog.h
+    view_hardware_grabbed.cpp
+    view_hardware_grabbed.h
 )
 
 target_link_libraries(adb_sequence
@@ -113,6 +120,7 @@ target_link_libraries(adb_sequence
         Qt6::Core
         Qt6::Widgets
         Qt6::Gui
+        Qt6::Network
         Qt6::WebSockets
         Qt6::OpenGLWidgets
 )
