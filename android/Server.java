@@ -9,59 +9,102 @@ import java.net.Socket;
 import java.lang.reflect.Method;
 
 public class Server {
+
     public static void main(String[] args) {
         try {
             int port = 7373;
             if (args.length > 0) {
-                port = Integer.parseInt(args[0]);
-            }
+                port = Integer.parseInt(args[0]);}
             new Server().start(port);
         } catch (Exception e) {
-            System.err.println("Fatal error: " + e.getMessage());
+            System.err.println("Fatal error: " + e.toString());
             e.printStackTrace();
-            System.exit(1);
-        }
-    }
+            System.exit(1);}}
 
     public void start(int port) throws Exception {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("Server started on port " + port + ". Waiting for connection...");
-            
+            System.out.println("ADB_SEQUENCE_SERVER: Listening on port " + port);
             while (true) {
-                try (Socket client = serverSocket.accept()) {
-                    client.setTcpNoDelay(true);
-                    System.out.println("Qt Client connected: " + client.getRemoteSocketAddress());
-                    DataOutputStream out = new DataOutputStream(client.getOutputStream());
-                    int width = 720;
-                    int height = 1280;
-                    int bitrate = 4000000;
-                    ScreenEncoder encoder = new ScreenEncoder(width, height, bitrate);
-                    encoder.stream(out); 
-                } catch (Exception e) {
-                    System.err.println("Connection error: " + e.getMessage());
-                }
-                System.out.println("Ready for next connection...");
+                Socket client = serverSocket.accept();
+                // Każde połączenie dostaje osobny wątek
+                new Thread(() -> handleClient(client)).start();}}}
+
+    private void handleClient(Socket client) {
+        System.out.println("Client Connected: " + client.getRemoteSocketAddress());
+        try {
+            client.setTcpNoDelay(true);
+            DataInputStream in = new DataInputStream(client.getInputStream());
+            DataOutputStream out = new DataOutputStream(client.getOutputStream());
+            int targetWidth = 720;
+            int targetHeight = 1280;
+            int bitrate = 4000000;
+            try {
+                client.setSoTimeout(2000); 
+                targetWidth = in.readInt();
+                targetHeight = in.readInt();
+                bitrate = in.readInt();
+                if (targetWidth <= 0) targetWidth = 720;
+                if (targetHeight <= 0) targetHeight = 1280;
+                System.out.println(String.format("CONFIG: %dx%d @ %d bps", targetWidth, targetHeight, bitrate));
+            } catch (IOException e) {
+                System.out.println("Handshake failed or timed out. Using default 720x1280.");
+            }
+            client.setSoTimeout(0);
+            ScreenEncoder encoder = new ScreenEncoder(targetWidth, targetHeight, bitrate);
+            encoder.stream(out);
+        } catch (Exception e) {
+            System.err.println("SERVER ERROR: " + e.toString());
+            e.printStackTrace();
+        } finally {
+            try {
+                client.close();
+                System.out.println("Client Connection Closed.");
+            } catch (IOException e) {
+                // ignore
             }
         }
     }
 
     public static void createDisplayMirror(Surface surface, int w, int h) throws Exception {
-    IBinder display = SurfaceControl.getBuiltInDisplay();
+        IBinder display = getBuiltInDisplay();
+        if (display == null) throw new RuntimeException("No display token!");
+        Method createDisplayMethod = Class.forName("android.view.SurfaceControl")
+                .getMethod("createDisplay", String.class, boolean.class);
+        IBinder virtualDisplay = (IBinder) createDisplayMethod.invoke(null, "adb_sequence", false);
+        openTransaction();
+        try {
+            setDisplaySurface(virtualDisplay, surface);
+            Rect rect = new Rect(0, 0, w, h);
+            setDisplayProjection(virtualDisplay, 0, rect, rect);
+            setDisplayLayerStack(virtualDisplay, 0);
+        } finally {
+            closeTransaction();}}
 
-    if (display == null) {
-        throw new RuntimeException("Could not get display token. Are you running as shell/root?");
-    }
+    private static IBinder getBuiltInDisplay() throws Exception {
+        try {
+            return (IBinder) Class.forName("android.view.SurfaceControl")
+                    .getMethod("getInternalDisplayToken").invoke(null);
+        } catch (Exception e) {
+            return (IBinder) Class.forName("android.view.SurfaceControl")
+                    .getMethod("getBuiltInDisplay", int.class).invoke(null, 0);}}
 
-    IBinder virtualDisplay = SurfaceControl.createDisplay("adb_sequence", false);
+    private static void openTransaction() throws Exception {
+        Class.forName("android.view.SurfaceControl").getMethod("openTransaction").invoke(null);}
 
-    SurfaceControl.openTransaction();
-    try {
-        SurfaceControl.setDisplaySurface(virtualDisplay, surface);
-        Rect rect = new Rect(0, 0, w, h);
-        SurfaceControl.setDisplayProjection(virtualDisplay, 0, rect, rect);
-        SurfaceControl.setDisplayLayerStack(virtualDisplay, 0);
-    } finally {
-        SurfaceControl.closeTransaction();
-    }
-    System.out.println("adb_sequence - Virtual Display Mirror Activated!");
-}}
+    private static void closeTransaction() throws Exception {
+        Class.forName("android.view.SurfaceControl").getMethod("closeTransaction").invoke(null);}
+
+    private static void setDisplaySurface(IBinder display, Surface surface) throws Exception {
+        Class.forName("android.view.SurfaceControl")
+                .getMethod("setDisplaySurface", IBinder.class, Surface.class)
+                .invoke(null, display, surface);}
+
+    private static void setDisplayProjection(IBinder display, int orientation, Rect layerStack, Rect displayRect) throws Exception {
+        Class.forName("android.view.SurfaceControl")
+                .getMethod("setDisplayProjection", IBinder.class, int.class, Rect.class, Rect.class)
+                .invoke(null, display, orientation, layerStack, displayRect);}
+
+    private static void setDisplayLayerStack(IBinder display, int layerStack) throws Exception {
+        Class.forName("android.view.SurfaceControl")
+                .getMethod("setDisplayLayerStack", IBinder.class, int.class)
+                .invoke(null, display, layerStack);}}
