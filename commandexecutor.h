@@ -1,8 +1,12 @@
-#pragma once
+#ifndef COMMANDEXECUTOR_H
+#define COMMANDEXECUTOR_H
+
 #include <QObject>
 #include <QProcess>
 #include <QStringList>
 #include "adb_client.h" 
+
+class HardwareGrabbed;
 
 class CommandExecutor : public QObject {
     Q_OBJECT
@@ -10,6 +14,7 @@ public:
     explicit CommandExecutor(QObject *parent = nullptr);
     ~CommandExecutor();
 
+	void setHardwareInterface(HardwareGrabbed *hw) { m_hwGrab = hw; }
     void setAdbPath(const QString &path);
     void setTargetDevice(const QString &serial);
     void runAdbCommand(const QStringList &args);
@@ -50,5 +55,8 @@ private:
     QProcess *m_process = nullptr;
     QProcess *m_shellProcess = nullptr;
     
-    AdbClient *m_adbClient = nullptr; 
+    AdbClient *m_adbClient = nullptr;
+    HardwareGrabbed *m_hwGrab = nullptr;
 };
+
+#endif // COMMANDEXECUTOR_H
