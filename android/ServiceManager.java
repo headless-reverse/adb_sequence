@@ -11,9 +11,7 @@ public final class ServiceManager {
         try {
             GET_SERVICE_METHOD = Class.forName("android.os.ServiceManager").getDeclaredMethod("getService", String.class);
         } catch (Exception e) {
-            throw new AssertionError(e);
-        }
-    }
+            throw new AssertionError(e);}}
 
     public static IInterface getService(String service, String type) {
         try {
@@ -21,7 +19,4 @@ public final class ServiceManager {
             Method asInterfaceMethod = Class.forName(type + "$Stub").getMethod("asInterface", IBinder.class);
             return (IInterface) asInterfaceMethod.invoke(null, binder);
         } catch (Exception e) {
-            throw new AssertionError(e);
-        }
-    }
-}
+            throw new AssertionError(e);}}}
