@@ -37,7 +37,6 @@ private:
     QByteArray m_readBuffer;
     QString m_targetSerial;
 
-    // Funkcje protokołu
     void writeAdbHeader(const QString &command);
     void processAdbStatus();
     void handleDeviceData();
