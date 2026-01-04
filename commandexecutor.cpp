@@ -1,4 +1,5 @@
 #include "commandexecutor.h"
+#include "hardware_grabbed.h"
 #include <QByteArray>
 #include <QDebug>
 #include <QProcess>
@@ -99,7 +100,6 @@ void CommandExecutor::onShellProcessFinished(int exitCode, QProcess::ExitStatus 
 }
 
 void CommandExecutor::onAdbClientError(const QString &message) {
-    // Przekazanie błędu z AdbClienta do głównego dziennika
     emit errorReceived(QString("[ADB SOCKET ERROR] %1").arg(message));
     emit finished(1, QProcess::NormalExit); }
 
@@ -138,7 +138,16 @@ void CommandExecutor::onFinished(int exitCode, QProcess::ExitStatus exitStatus) 
         m_process = nullptr;}}
 
 void CommandExecutor::executeSequenceCommand(const QString &command, const QString &runMode) {
-    QString mode = runMode.toLower();    
+    QString mode = runMode.toLower();
+
+	if (mode == "hw") {
+		if (command.startsWith("key ")) {
+			uint16_t code = command.mid(4).toUInt();
+			m_hwGrab->sendKey(code);
+			emit outputReceived(QString("[HW_EXEC] Wysłano KeyCode: %1").arg(code));
+			emit finished(0, QProcess::NormalExit);
+			return;}}
+
     if (mode == "shell" && command.startsWith("input ")) {
         if (m_adbClient && !m_targetSerial.isEmpty() && m_adbClient->targetDevice() == m_targetSerial) {
             qDebug() << "Executing command via AdbClient (Socket):" << command;
