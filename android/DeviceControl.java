@@ -17,16 +17,12 @@ public class DeviceControl {
             Method getServiceMethod = Class.forName("android.os.ServiceManager")
                     .getDeclaredMethod("getService", String.class);
             Object imBinder = getServiceMethod.invoke(null, "input");
-            
             Method asInterfaceMethod = Class.forName("android.hardware.input.IInputManager$Stub")
                     .getDeclaredMethod("asInterface", android.os.IBinder.class);
             inputManager = asInterfaceMethod.invoke(null, imBinder);
             injectMethod = inputManager.getClass().getMethod("injectInputEvent", InputEvent.class, int.class);
-            
         } catch (Exception e) {
-            System.err.println("Failed to initialize DeviceControl: " + e.getMessage());
-        }
-    }
+            System.err.println("Failed to initialize DeviceControl: " + e.getMessage());}}
 
     public void injectEvent(byte type, int x, int y, int data) {
         try {
@@ -46,15 +42,11 @@ public class DeviceControl {
                 case Protocol.EVENT_TYPE_KEY:
                     injectKeyEvent(KeyEvent.ACTION_DOWN, data);
                     injectKeyEvent(KeyEvent.ACTION_UP, data);
-                    return;
-            }
+                    return;}
             if (event != null) {
-                injectMethod.invoke(inputManager, event, 0);
-            }
+                injectMethod.invoke(inputManager, event, 0);}
         } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
+            e.printStackTrace();}}
 
     private MotionEvent createMotionEvent(int action, long downTime, int x, int y) {
         MotionEvent.PointerProperties props = new MotionEvent.PointerProperties();
@@ -70,12 +62,9 @@ public class DeviceControl {
             new MotionEvent.PointerProperties[]{props},
             new MotionEvent.PointerCoords[]{coords},
             0, 0, 1.0f, 1.0f, 0, 0, 
-            InputDevice.SOURCE_TOUCHSCREEN, 0
-        );
-    }
+            InputDevice.SOURCE_TOUCHSCREEN, 0);}
+    
     private void injectKeyEvent(int action, int keyCode) throws Exception {
         long now = SystemClock.uptimeMillis();
         KeyEvent event = new KeyEvent(now, now, action, keyCode, 0);
-        injectMethod.invoke(inputManager, event, 0);
-    }
-}
+        injectMethod.invoke(inputManager, event, 0);}}
